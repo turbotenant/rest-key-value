@@ -1,0 +1,97 @@
+
+name: Tests
+
+permissions:
+  contents: read
+  packages: write
+
+
+on:
+  pull_request:
+    types: [opened, synchronize] 
+
+jobs:
+  tests:
+
+    runs-on: ubuntu-20.04
+    env:
+      redis_key: x
+      redis_value: 100
+      gh_owner: turbotenant
+    steps:
+    - name: Repo Checkout
+      uses: actions/checkout@v2
+
+
+### Will build and start the Redis and the Application
+    - name: Run Docker Compose
+      run: | 
+        docker-compose up --build -V --remove-orphans -d
+        sleep 5
+
+### Will test checking if the key has a value, if don't it will set and check again the value
+
+    - name: Test Application
+      run: |
+        #!/bin/bash
+
+        set -v
+
+        insert_key(){
+        echo "Adding Key $1 Value $2"
+        curl -X PUT localhost:3000/data/$1/$2
+        }
+
+        check_key_empty()
+        {
+        empty=$(curl localhost:3000/data/$1 | jq -r .data)
+        if [[ $empty = "null" ]]
+        then
+          echo "Key $1 is empty (Value: $empty)"
+        else
+          echo "Key $1 is not empty (Value: $empty)"
+          exit 1
+        fi
+        }
+
+        check_key_value()
+        {
+        value=$(curl localhost:3000/data/$1 | jq -r .data)
+        if [[ $value = $2 ]]
+        then 
+          echo "The value is valid (Argument $2 Value: $value)"
+        else
+          echo "The value is not valid (Argument $2 Value: $value)"
+          exit 1
+        fi
+        }
+
+        check_key_empty $redis_key
+        insert_key $redis_key $redis_value
+        check_key_value $redis_key $redis_value
+
+### Will output the value of the same Key but now querying directly from the Redis Container
+
+    - name: Check Value Directly on Redis Database
+      run: docker exec redis redis-cli get $redis_key
+
+### Will run the NPM Tests
+    - name: NPM Run Test
+      run: docker exec app npm run test
+
+### Stop the Containers and Clean the Volumes in case of self-hosted runners
+    - name: Stop Docker Compose
+      run: docker-compose down -v --remove-orphans
+
+### It will authenticate to the GH Packages
+    - name: Authenticate to GH Packages
+      run: |
+        echo $CR_PAT | docker login ghcr.io -u amjanoni --password-stdin
+      env:
+        CR_PAT: ${{ secrets.GITHUB_TOKEN }}
+
+### Rename and Push the Docker using the Build namer as tag.
+    - name: Tag and Push Image
+      run: |
+        docker tag application:latest ghcr.io/$gh_owner/application:$GITHUB_RUN_NUMBER
+        docker push ghcr.io/$gh_owner/application:$GITHUB_RUN_NUMBER
