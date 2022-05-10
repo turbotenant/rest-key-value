@@ -4,3 +4,4 @@ COPY ./package*.json ./
 COPY server.js .
 RUN npm ci
 EXPOSE 3000/tcp
+CMD ["npm", "start"]

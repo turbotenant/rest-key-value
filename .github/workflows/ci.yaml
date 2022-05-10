@@ -9,8 +9,6 @@ permissions:
 on:
   pull_request:
     types: [opened, synchronize] 
-  push:
-    branches:
 
 jobs:
   tests:
@@ -19,15 +17,19 @@ jobs:
     env:
       redis_key: x
       redis_value: 100
-      gh_owner: amjanoni
+      gh_owner: turbotenant
     steps:
     - name: Repo Checkout
       uses: actions/checkout@v2
 
+
+### Will build and start the Redis and the Application
     - name: Run Docker Compose
       run: | 
         docker-compose up --build -V --remove-orphans -d
         sleep 5
+
+### Will test checking if the key has a value, if don't it will set and check again the value
 
     - name: Test Application
       run: |
@@ -66,23 +68,29 @@ jobs:
 
         check_key_empty $redis_key
         insert_key $redis_key $redis_value
-        check_key_value $redis_key 1000
+        check_key_value $redis_key $redis_value
+
+### Will output the value of the same Key but now querying directly from the Redis Container
 
     - name: Check Value Directly on Redis Database
       run: docker exec redis redis-cli get $redis_key
 
+### Will run the NPM Tests
     - name: NPM Run Test
       run: docker exec app npm run test
 
+### Stop the Containers and Clean the Volumes in case of self-hosted runners
     - name: Stop Docker Compose
       run: docker-compose down -v --remove-orphans
 
+### It will authenticate to the GH Packages
     - name: Authenticate to GH Packages
       run: |
         echo $CR_PAT | docker login ghcr.io -u amjanoni --password-stdin
       env:
         CR_PAT: ${{ secrets.GITHUB_TOKEN }}
 
+### Rename and Push the Docker using the Build namer as tag.
     - name: Tag and Push Image
       run: |
         docker tag application:latest ghcr.io/$gh_owner/application:$GITHUB_RUN_NUMBER
