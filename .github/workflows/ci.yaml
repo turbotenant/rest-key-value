@@ -1,0 +1,88 @@
+
+name: Tests
+
+permissions:
+  contents: read
+  packages: write
+
+
+on:
+  pull_request:
+    types: [opened, synchronize] 
+  push:
+    branches:
+
+jobs:
+  tests:
+
+    runs-on: ubuntu-20.04
+    env:
+      redis_key: x
+      redis_value: 100
+      gh_owner: amjanoni
+    steps:
+    - name: Repo Checkout
+      uses: actions/checkout@v2
+
+    - name: Run Docker Compose
+      run: | 
+        docker-compose up --build -V --remove-orphans -d
+        sleep 5
+
+    - name: Test Application
+      run: |
+        #!/bin/bash
+
+        set -v
+
+        insert_key(){
+        echo "Adding Key $1 Value $2"
+        curl -X PUT localhost:3000/data/$1/$2
+        }
+
+        check_key_empty()
+        {
+        empty=$(curl localhost:3000/data/$1 | jq -r .data)
+        if [[ $empty = "null" ]]
+        then
+          echo "Key $1 is empty (Value: $empty)"
+        else
+          echo "Key $1 is not empty (Value: $empty)"
+          exit 1
+        fi
+        }
+
+        check_key_value()
+        {
+        value=$(curl localhost:3000/data/$1 | jq -r .data)
+        if [[ $value = $2 ]]
+        then 
+          echo "The value is valid (Argument $2 Value: $value)"
+        else
+          echo "The value is not valid (Argument $2 Value: $value)"
+        fi
+        }
+
+        check_key_empty $redis_key
+        insert_key $redis_key $redis_value
+        check_key_value $redis_key $redis_value
+
+    - name: Check Value Directly on Redis Database
+      run: docker exec redis redis-cli get $redis_key
+
+    - name: NPM Run Test
+      run: docker exec app npm run test
+
+    - name: Stop Docker Compose
+      run: docker-compose down -v --remove-orphans
+
+    - name: Authenticate to GH Packages
+      run: |
+        echo $CR_PAT | docker login ghcr.io -u amjanoni --password-stdin
+      env:
+        CR_PAT: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Tag and Push Image
+      run: |
+        docker tag application:latest ghcr.io/$gh_owner/application:$GITHUB_RUN_NUMBER
+        docker push ghcr.io/$gh_owner/application:$GITHUB_RUN_NUMBER
