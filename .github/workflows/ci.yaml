@@ -60,12 +60,13 @@ jobs:
           echo "The value is valid (Argument $2 Value: $value)"
         else
           echo "The value is not valid (Argument $2 Value: $value)"
+          exit 1
         fi
         }
 
         check_key_empty $redis_key
         insert_key $redis_key $redis_value
-        check_key_value $redis_key $redis_value
+        check_key_value $redis_key 1000
 
     - name: Check Value Directly on Redis Database
       run: docker exec redis redis-cli get $redis_key
